@@ -1,16 +1,15 @@
 #include <iostream>
 #include <vector>
-#include <unordered_map>
-#include <queue>
-#include <climits>
 #include <cmath>
-#include <cfloat>  // For DBL_MAX
-#include <stack>   // For std::stack
+#include <limits>
+#include <algorithm> 
+
 
 using namespace std;
 
 // Constants for Earth radius in kilometers
 const double EARTH_RADIUS = 6371.0;
+const int INF = numeric_limits<int>::max();  // To represent infinity
 
 // Struct to hold the geographical coordinates of each block (latitude and longitude)
 struct Block {
@@ -77,118 +76,123 @@ string getDirection(double fromBearing, double toBearing) {
 }
 
 class Graph {
-    unordered_map<string, vector<pair<string, double>>> adjList;  // Adjacency list for graph
-    unordered_map<string, Block> blockPositions;  // Store block names and positions
+    vector<vector<double>> adjMatrix;  // Adjacency matrix for distances
+    vector<Block> blocks;  // Store block names and positions
 
 public:
+    // Constructor to initialize the graph with a given number of blocks
+    Graph(int n) {
+        adjMatrix.resize(n, vector<double>(n, INF));  // Initialize the adjacency matrix with INF
+        blocks.resize(n);
+    }
+
     // Add blocks with geographical coordinates
-    void addBlock(string name, double latitude, double longitude) {
-        blockPositions[name] = Block(name, latitude, longitude);
+    void addBlock(int idx, string name, double latitude, double longitude) {
+        blocks[idx] = Block(name, latitude, longitude);
     }
 
     // Add edges between blocks with distances (distances are automatically calculated)
-    void addEdge(string u, string v) {
-        double distance = haversineDistance(blockPositions[u], blockPositions[v]);
-        adjList[u].push_back({v, distance});
-        adjList[v].push_back({u, distance});  // Assuming undirected graph
+    void addEdge(int u, int v) {
+        double distance = haversineDistance(blocks[u], blocks[v]);
+        adjMatrix[u][v] = distance;
+        adjMatrix[v][u] = distance;  // Assuming undirected graph
     }
 
     // Dijkstra's algorithm to find the shortest path from source to destination
-    void dijkstraWithPath(string start, string end) {
-        unordered_map<string, double> distances;
-        unordered_map<string, string> previous;  // To track the path
-        for (auto& node : adjList) {
-            distances[node.first] = DBL_MAX;  // Use DBL_MAX for initial distances
-        }
+    void dijkstraWithPath(int start, int end) {
+        int n = blocks.size();
+        vector<double> distances(n, INF);  // Distance array
+        vector<int> previous(n, -1);  // To track the path
+        vector<bool> visited(n, false);  // To mark visited nodes
+
         distances[start] = 0;
 
-        // Priority queue to pick the smallest distance node
-        priority_queue<pair<double, string>, vector<pair<double, string>>, greater<pair<double, string>>> pq;
-        pq.push({0, start});
+        for (int i = 0; i < n; ++i) {
+            int node = -1;
 
-        while (!pq.empty()) {
-            double dist = pq.top().first;
-            string node = pq.top().second;
-            pq.pop();
+            // Pick the smallest distance node
+            for (int j = 0; j < n; ++j) {
+                if (!visited[j] && (node == -1 || distances[j] < distances[node])) {
+                    node = j;
+                }
+            }
 
-            if (node == end) break;
+            if (distances[node] == INF) break;
+            visited[node] = true;
 
-            for (auto& neighbor : adjList[node]) {
-                string nextNode = neighbor.first;
-                double weight = neighbor.second;
-
-                if (dist + weight < distances[nextNode]) {
-                    distances[nextNode] = dist + weight;
-                    previous[nextNode] = node;
-                    pq.push({distances[nextNode], nextNode});
+            // Explore neighbors
+            for (int neighbor = 0; neighbor < n; ++neighbor) {
+                if (!visited[neighbor] && adjMatrix[node][neighbor] != INF) {
+                    double newDist = distances[node] + adjMatrix[node][neighbor];
+                    if (newDist < distances[neighbor]) {
+                        distances[neighbor] = newDist;
+                        previous[neighbor] = node;
+                    }
                 }
             }
         }
 
-        if (distances[end] == DBL_MAX) {
-            cout << "No path found between " << start << " and " << end << endl;
+        if (distances[end] == INF) {
+            cout << "No path found between " << blocks[start].name << " and " << blocks[end].name << endl;
         } else {
-            cout << "Shortest distance between " << start << " and " << end << " is " << distances[end] << " kilometers." << endl;
+            cout << "Shortest distance between " << blocks[start].name << " and " << blocks[end].name << " is " << distances[end] << " kilometers." << endl;
             printPathWithDirections(previous, start, end);
         }
     }
 
     // Function to print the path and directions
-    void printPathWithDirections(unordered_map<string, string>& previous, string start, string end) {
-        stack<string> path;  // Use std::stack to track the path
-        string current = end;
+    void printPathWithDirections(vector<int>& previous, int start, int end) {
+        vector<int> path;
 
-        while (current != start) {
-            path.push(current);
-            current = previous[current];
+        for (int at = end; at != -1; at = previous[at]) {
+            path.push_back(at);
         }
-        path.push(start);
+
+        if (path.back() != start) {
+            cout << "No path found!" << endl;
+            return;
+        }
+
+        reverse(path.begin(), path.end());
 
         cout << "Directions: " << endl;
-        string prevBlock = path.top();
-        path.pop();
-
         double prevBearing = 0.0;
 
-        while (!path.empty()) {
-            string nextBlock = path.top();
-            path.pop();
-
-            Block from = blockPositions[prevBlock];
-            Block to = blockPositions[nextBlock];
-
+        for (size_t i = 1; i < path.size(); ++i) {
+            Block from = blocks[path[i - 1]];
+            Block to = blocks[path[i]];
             double bearing = calculateBearing(from, to);
-            if (prevBlock != start) {
-                string direction = getDirection(prevBearing, bearing);
-                cout << direction << " to " << nextBlock << " (" << haversineDistance(from, to) << " kilometers)" << endl;
+
+            if (i == 1) {
+                cout << "Start at " << from.name << endl;
             } else {
-                cout << "Start at " << nextBlock << endl;
+                string direction = getDirection(prevBearing, bearing);
+                cout << direction << " to " << to.name << " (" << haversineDistance(from, to) << " kilometers)" << endl;
             }
 
             prevBearing = bearing;
-            prevBlock = nextBlock;
         }
     }
 };
 
 int main() {
-    Graph campusGraph;
+    Graph campusGraph(5);
 
     // Adding blocks with latitude and longitude
-    campusGraph.addBlock("BlockA", 12.9716, 77.5946);  // Example coordinates (lat, lon)
-    campusGraph.addBlock("BlockB", 12.9721, 77.5937);
-    campusGraph.addBlock("BlockC", 12.9736, 77.5952);
-    campusGraph.addBlock("BlockD", 12.9711, 77.5980);
-    campusGraph.addBlock("BlockE", 12.9745, 77.5971);
+    campusGraph.addBlock(0, "BlockA", 12.9716, 77.5946);
+    campusGraph.addBlock(1, "BlockB", 12.9721, 77.5937);
+    campusGraph.addBlock(2, "BlockC", 12.9736, 77.5952);
+    campusGraph.addBlock(3, "BlockD", 12.9711, 77.5980);
+    campusGraph.addBlock(4, "BlockE", 12.9745, 77.5971);
 
     // Adding edges (distances are automatically calculated)
-    campusGraph.addEdge("BlockA", "BlockB");
-    campusGraph.addEdge("BlockB", "BlockC");
-    campusGraph.addEdge("BlockA", "BlockD");
-    campusGraph.addEdge("BlockC", "BlockE");
+    campusGraph.addEdge(0, 1);
+    campusGraph.addEdge(1, 2);
+    campusGraph.addEdge(0, 3);
+    campusGraph.addEdge(2, 4);
 
-    string startPoint = "BlockA";
-    string endPoint = "BlockE";
+    int startPoint = 0;
+    int endPoint = 4;
 
     // Find the shortest path and directions between two blocks
     campusGraph.dijkstraWithPath(startPoint, endPoint);
